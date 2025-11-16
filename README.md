@@ -15,9 +15,9 @@ This project implements and documents **core neural network architectures from s
 1. **Bengio et al. (2003)** — *"A Neural Probabilistic Language Model"*
 2. **Mikolov et al. (2010)** — *"Recurrent Neural Network Based Language Model"*
 3. **Graves (2013)** — *"Generating Sequences with Recurrent Neural Networks"*
-4. **Cho et al. (2014)** — *"On the Properties of Neural Machine Translation: Encoder–Decoder Approaches"*
-5. **Sutskever et al. (2014)** — *"Sequence to Sequence Learning with Neural Networks"*
-6. **Bahdanau et al. (2015)** — *"Neural Machine Translation by Jointly Learning to Align and Translate"*
+4. **Cho et al. (2014)** — *"On the Properties of Neural Machine Translation: Encoder–Decoder Approaches"*  (Not pushed yet)
+5. **Sutskever et al. (2014)** — *"Sequence to Sequence Learning with Neural Networks"*  (Not pushed yet)
+6. **Bahdanau et al. (2015)** — *"Neural Machine Translation by Jointly Learning to Align and Translate"* (Not pushed yet)
 7. **Vaswani et al. (2017)** — *"Attention Is All You Need"* (Transformer)
 
 ---
