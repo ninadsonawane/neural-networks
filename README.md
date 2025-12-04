@@ -1,4 +1,4 @@
-# Neural Networks: From Foundations to Transformers
+# A Study on Modern Neural Networks: From MLP to Transformers
 
 A complete implementation and analysis of foundational deep learning architectures, studying the evolution from fixed-context MLPs to fully-attentive Transformers (2003–2017).
 
