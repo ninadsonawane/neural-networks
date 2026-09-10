@@ -1,0 +1,16 @@
+.museum-scene { width: 100%; height: 100%; min-height: 0; position: relative; touch-action: none; isolation: isolate; }
+.museum-scene::before { content: ''; position: absolute; inset: 8% 14% 9%; pointer-events: none; background: radial-gradient(ellipse at 52% 46%, rgb(87 115 123 / 10%), transparent 64%); z-index: -1; }
+.museum-scene canvas { display: block; width: 100%; height: 100%; outline: none; cursor: grab; }
+.museum-scene canvas:active { cursor: grabbing; }
+.museum-scene.has-hover canvas { cursor: pointer; }
+.museum-flat { position: absolute; inset: 0; overflow: hidden; }
+.museum-flat svg { width: 100%; height: 100%; overflow: visible; }
+.museum-flat-label { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); font-size: 10px; color: #a8b8bb; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.museum-flat-label span { color: #687d83; }
+.museum-flat-part { cursor: pointer; outline: none; }
+.museum-flat-part:focus-visible { outline: 2px solid #a7f5d8; outline-offset: 5px; }
+.museum-flat-part:hover { filter: brightness(1.3); }
+@media (max-width: 760px) {
+  .museum-flat-label { bottom: 6px; font-size: 9px; }
+}
+@media (prefers-reduced-motion: reduce) { .museum-scene *, .museum-scene *::before { transition: none !important; animation: none !important; } }
