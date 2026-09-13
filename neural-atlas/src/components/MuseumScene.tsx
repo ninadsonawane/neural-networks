@@ -1,7 +1,8 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import { AdditiveBlending, BackSide, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Group, Line, LineBasicMaterial, MathUtils, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, Object3D, PerspectiveCamera, SphereGeometry, SRGBColorSpace, TorusGeometry, Vector3 } from 'three';
+import { Html, OrbitControls } from '@react-three/drei';
+import { semanticSeed } from '../explorer/cinema';
+import { AdditiveBlending, BackSide, DoubleSide, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Group, Line, LineBasicMaterial, MathUtils, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, Object3D, PerspectiveCamera, SphereGeometry, SRGBColorSpace, TorusGeometry, Vector3 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { ExplorerModel, ExplorerPart, PartCategory, Vec3 } from '../explorer/types';
@@ -22,6 +23,17 @@ export interface MuseumSceneProps {
   onSelect: (id: string | null) => void;
   onHover?: (id: string | null) => void;
   flat: boolean;
+  duration?: number;
+  launching?: boolean;
+  momentId?: string | null;
+  clueStrength?: number;
+  scan?: boolean;
+  paperTarget?: string;
+  onAnchor?: (x:number,y:number)=>void;
+  onReturn?:()=>void;
+  inputCards?: string[];
+  additionId?:string|null;
+  paperFront?:boolean;
 }
 
 const MINT = '#a7f5d8';
@@ -68,7 +80,7 @@ function makeResources() {
 }
 
 function TokenFace({ part, dimmed }: { part: ExplorerPart; dimmed: boolean }) {
-  const texture = useMemo(() => makeLabel(part.label, part.ghost ? AMBER : '#effff9'), [part.label, part.ghost]);
+  const texture = useMemo(() => makeLabel(part.label, part.category==='tokens'||part.category==='output'?'#233b36':part.ghost ? AMBER : '#effff9'), [part.label, part.ghost,part.category]);
   useEffect(() => () => texture.dispose(), [texture]);
   return <mesh position={[0, 0, .506]}>
     <planeGeometry args={[.88, .68]} />
@@ -76,39 +88,47 @@ function TokenFace({ part, dimmed }: { part: ExplorerPart; dimmed: boolean }) {
   </mesh>;
 }
 
-function InnerLattice({ resources, kind }: { resources: SceneResources; kind: ExplorerPart['kind'] }) {
+function InnerLattice({ resources, kind, cells }: { resources: SceneResources; kind: ExplorerPart['kind']; cells?:number }) {
   const instance = useRef<import('three').InstancedMesh>(null);
-  const count = kind === 'bundle' ? 15 : 9;
+  const count = cells ?? (kind === 'bundle' ? 15 : 9);
   useEffect(() => {
     if (!instance.current) return;
     const object = new Object3D();
     for (let i = 0; i < count; i++) {
-      const cols = kind === 'bundle' ? 5 : 3;
-      object.position.set((i % cols - (cols - 1) / 2) * .145, (Math.floor(i / cols) - 1) * .17, .502);
+      const cols = Math.ceil(Math.sqrt(count));
+      object.position.set((i % cols - (cols - 1) / 2) * .65/cols, (Math.floor(i / cols) - (cols-1)/2) * .65/cols, .502);
       object.scale.set(.055, .055, .07); object.updateMatrix();
       instance.current.setMatrixAt(i, object.matrix);
     }
     instance.current.instanceMatrix.needsUpdate = true;
-  }, [count, kind]);
+  }, [count]);
   return <instancedMesh ref={instance} args={[resources.bead, resources.cellMaterial, count]} />;
 }
 
-function Part({ part, resources, registry, props, hoveredId, canClick }: {
+function Part({ part, resources, registry, props, hoveredId, canClick, retiring=false }: {
   part: ExplorerPart; resources: SceneResources; registry: Map<string, Group>;
   props: MuseumSceneProps; hoveredId: string | null; canClick: () => boolean;
+  retiring?:boolean;
 }) {
   const group = useRef<Group>(null);
   const shell = useRef<Mesh>(null);
-  const initialPosition = useRef(positionFor(part, props.explosion));
+  const valveMesh = useRef<Mesh>(null);
+  const body = useRef<Group>(null);
+  const label=useRef<HTMLButtonElement>(null);
+  const initialPosition = useRef(semanticSeed(part));
+  const entry=useRef(0);
+  const stepAge=useRef({step:props.step,time:0});
   const selected = related(part, props.selectedId, props.model.parts);
-  const muted = props.selectedId !== null && !selected;
+  const attentionId=props.momentId??props.additionId??(props.paperFront?props.paperTarget:undefined);
+  const highlighted=attentionId===part.id||!!attentionId&&(part.clue||part.category==='gates'&&props.model.architecture==='lstm');
+  const muted = props.selectedId !== null && !selected || !!props.momentId&&!highlighted;
   const hovered = hoveredId === part.id;
   const color = part.ghost ? AMBER : (part.color || CATEGORY_BASE[part.category]);
   const material = useMemo(() => new MeshPhysicalMaterial({
-    color, metalness: .4, roughness: .29, clearcoat: .7, clearcoatRoughness: .3,
+    color, metalness: part.kind==='card' ? .03 : .4, roughness: part.kind==='card' ? .78 : .29, clearcoat: part.kind==='card' ? 0 : .7, clearcoatRoughness: .3,
     transparent: true, opacity: 0, depthWrite: true,
     emissive: part.ghost ? AMBER : MINT, emissiveIntensity: 0,
-  }), [color, part.ghost]);
+  }), [color, part.ghost, part.kind]);
   useEffect(() => () => material.dispose(), [material]);
   useEffect(() => {
     if (group.current) registry.set(part.id, group.current);
@@ -116,19 +136,28 @@ function Part({ part, resources, registry, props, hoveredId, canClick }: {
   }, [part.id, registry]);
   useFrame((state, delta) => {
     if (!group.current) return;
-    const target = positionFor(part, props.explosion);
+    const target = retiring?semanticSeed(part):positionFor(part, props.explosion);
+    target[1]+=hovered?.10:0;
+    target[2]+=hovered?.14:0;
     const rate = props.reducedMotion ? 1 : 1 - Math.exp(-8 * Math.min(delta, .05));
+    entry.current=Math.min(1,entry.current+Math.min(delta,.05)*1.8);
+    if(body.current){const appear=retiring?0:props.reducedMotion?1:entry.current;const compression=props.model.architecture==='rnn'&&part.kind==='sphere'&&part.active?.7+.3*(props.clueStrength??1):1;const desired=new Vector3(...part.scale).multiplyScalar(appear*compression);body.current.scale.lerp(desired,rate);if(body.current.scale.distanceTo(desired)>.002)state.invalidate();}
+    if(valveMesh.current)valveMesh.current.rotation.z=MathUtils.lerp(valveMesh.current.rotation.z,Math.PI*(.12+(part.value??.5)*.72),rate);
     group.current.position.x = MathUtils.lerp(group.current.position.x, target[0], rate);
     group.current.position.y = MathUtils.lerp(group.current.position.y, target[1], rate);
     group.current.position.z = MathUtils.lerp(group.current.position.z, target[2], rate);
-    const opacity = muted ? .16 : part.ghost ? .22 : .97;
+    const opacity = retiring?0:muted ? .10 : part.ghost ? .12 : part.id==='clue-bookmark'?.12+.85*(part.value??0):part.echo!==undefined?.12+.85*part.echo:.97;
+    if(label.current&&props.scan){const projected=group.current.position.clone().project(state.camera);const near=Math.hypot((projected.x-state.pointer.x)*state.size.width/2,(projected.y-state.pointer.y)*state.size.height/2)<120;label.current.style.opacity=near?'1':part.sceneLabel?'.35':'0';}
+    if(part.ghost&&part.kind==='card'&&props.hasRun){group.current.rotation.x=MathUtils.lerp(group.current.rotation.x,-1.35,rate);group.current.scale.y=MathUtils.lerp(group.current.scale.y,.2,rate);}
     material.opacity = MathUtils.lerp(material.opacity, opacity, rate);
     material.depthWrite = opacity > .4;
-    const pulse = props.playing && part.active ? (1 + Math.sin(state.clock.elapsedTime * 3.5)) * .045 : 0;
-    const emissive = muted ? 0 : selected ? .18 : hovered ? .1 : part.active ? .045 + pulse : 0;
+    const pulse = highlighted ? (1 + Math.sin(state.clock.elapsedTime * 4)) * .2 : 0;
+    if(stepAge.current.step!==props.step)stepAge.current={step:props.step,time:0};if(props.playing&&!props.momentId)stepAge.current.time+=Math.min(delta,.05);
+    const wake=props.playing&&(part.signal??0)>0?Math.max(0,Math.sin(Math.PI*Math.min(1,stepAge.current.time/.8)))*(.15+(part.signal??0)*.4):0;
+    const emissive = muted ? 0 : (highlighted?.25+pulse:selected ? .18 : hovered ? .2 : part.clue ? .2*(props.clueStrength??1) : part.active ? .055 : 0)+wake;
     material.emissiveIntensity = MathUtils.lerp(material.emissiveIntensity, emissive, rate);
     if (Math.abs(group.current.position.x - target[0]) + Math.abs(group.current.position.y - target[1]) + Math.abs(group.current.position.z - target[2]) > .001
-      || Math.abs(material.opacity - opacity) > .001 || Math.abs(material.emissiveIntensity - emissive) > .001) state.invalidate();
+      || entry.current<1 || body.current&&body.current.scale.distanceTo(new Vector3(...part.scale))>.005&&entry.current<1 || Math.abs(material.opacity - opacity) > .001 || Math.abs(material.emissiveIntensity - emissive) > .001) state.invalidate();
   });
   const select = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -137,14 +166,14 @@ function Part({ part, resources, registry, props, hoveredId, canClick }: {
   const round = part.kind === 'sphere';
   const valve = part.kind === 'valve';
   return <group ref={group} position={initialPosition.current}>
-    <group scale={part.scale} onClick={select}
+    <group ref={body} scale={[.001,.001,.001]} onClick={select} onDoubleClick={event=>{event.stopPropagation();props.onReturn?.();}}
       onPointerOver={event => { event.stopPropagation(); props.onHover?.(part.id); }}
       onPointerOut={event => { event.stopPropagation(); props.onHover?.(null); }}>
       <mesh ref={shell} geometry={round ? resources.sphere : valve || part.kind === 'ring' ? resources.ring : resources.box} material={material} castShadow receiveShadow />
       {part.kind === 'card' && <TokenFace part={part} dimmed={muted} />}
-      {(part.kind === 'slab' || part.kind === 'bundle' || part.kind === 'head') && !muted && <InnerLattice resources={resources} kind={part.kind} />}
+      {(part.kind === 'slab' || part.kind === 'bundle' || part.kind === 'head') && !muted && <InnerLattice resources={resources} kind={part.kind} cells={part.cells} />}
       {valve && <>
-        <mesh geometry={resources.box} material={material} scale={[.65, .085, .2]} rotation={[0, 0, Math.PI * (.12 + (part.value ?? .5) * .72)]} />
+        <mesh ref={valveMesh} geometry={resources.box} material={material} scale={[.65, .085, .2]} />
         <mesh geometry={resources.bead} material={resources.pinMaterial} scale={[.14, .14, .16]} position={[0, 0, .09]} />
       </>}
       {round && !muted && <mesh geometry={resources.fineRing} material={resources.pinMaterial} rotation={[.2, .4, -.35]} scale={1.1} />}
@@ -153,6 +182,7 @@ function Part({ part, resources, registry, props, hoveredId, canClick }: {
         <meshBasicMaterial color={MINT} side={BackSide} transparent opacity={.22} depthWrite={false} />
       </mesh>}
     </group>
+    {!retiring&&(part.sceneLabel||hovered||selected||props.scan)&&(!muted||hovered)&&<Html center position={part.sceneLabel==='Query'?[-1.1,-.15,.5]:part.sceneLabel==='Key'?[0,-.6,.5]:part.sceneLabel==='Value'?[1.1,-.15,.5]:[part.scale[0]/2+.12,part.scale[1]/2+.18,.25]} zIndexRange={[12,0]}><button ref={label} className={`part-label ${hovered||selected||highlighted?'bright':''}`} onClick={e=>{e.stopPropagation();props.onSelect(part.id);}} onDoubleClick={e=>{e.stopPropagation();props.onReturn?.();}}>{part.sceneLabel??part.label}</button></Html>}
   </group>;
 }
 
@@ -165,25 +195,30 @@ function Strand({ link, registry, props }: { link: ExplorerModel['links'][number
     const object = new Line(geometry, material); object.frustumCulled = false;
     return object;
   }, [link.kind]);
-  useEffect(() => () => { line.geometry.dispose(); line.material.dispose(); }, [line]);
+  const ribbon=useMemo(()=>{const geometry=new BufferGeometry();geometry.setAttribute('position',new BufferAttribute(new Float32Array(count*6),3));const indices=[];for(let i=0;i<count-1;i++)indices.push(i*2,i*2+1,i*2+2,i*2+1,i*2+3,i*2+2);geometry.setIndex(indices);const mesh=new Mesh(geometry,new MeshBasicMaterial({color:MINT,transparent:true,opacity:.3,depthWrite:false,side:DoubleSide}));mesh.frustumCulled=false;return mesh;},[]);
+  useEffect(() => () => { line.geometry.dispose(); line.material.dispose();ribbon.geometry.dispose();ribbon.material.dispose(); }, [line,ribbon]);
   useFrame((state) => {
     const from = registry.get(link.from), to = registry.get(link.to);
     line.visible = !!from && !!to;
+    ribbon.visible=!!from&&!!to&&link.kind==='attention';
     if (!from || !to) return;
     const positions = line.geometry.attributes.position as BufferAttribute;
     const weight = MathUtils.clamp(Math.abs(link.weight ?? .45), 0, 1);
     const strength = link.kind === 'attention' ? .07 + weight * .5 : .1 + props.explosion * .16;
     const selectedLink = props.selectedId === link.from || props.selectedId === link.to;
-    const pulse = props.playing && (link.kind === 'attention' || link.kind === 'flow' || link.kind === 'memory') ? .75 + .25 * Math.sin(state.clock.elapsedTime * 3 - weight * 6) : 1;
+    const pulse = props.playing && link.kind==='attention' ? .45 + .55*Math.max(0,Math.sin(state.clock.elapsedTime*1.7-weight)) : 1;
     line.material.opacity = props.selectedId ? selectedLink ? .8 : .04 : strength * pulse;
+    ribbon.material.opacity=line.material.opacity*.65;
     const rise = link.kind === 'attention' ? .25 + weight * .4 : link.kind === 'residual' ? -.26 : .06;
     for (let i = 0; i < count; i++) {
       const t = i / (count - 1);
       positions.setXYZ(i, MathUtils.lerp(from.position.x, to.position.x, t), MathUtils.lerp(from.position.y, to.position.y, t), MathUtils.lerp(from.position.z, to.position.z, t) + Math.sin(t * Math.PI) * rise);
+      const strip=ribbon.geometry.attributes.position as BufferAttribute;const dx=to.position.x-from.position.x,dy=to.position.y-from.position.y,len=Math.hypot(dx,dy)||1,half=(.007+weight*.06)*Math.sin(Math.PI*(.05+.9*t));for(let side=0;side<2;side++){const sign=side?1:-1;strip.setXYZ(i*2+side,positions.getX(i)-dy/len*half*sign,positions.getY(i)+dx/len*half*sign,positions.getZ(i));}
     }
     positions.needsUpdate = true;
+    ribbon.geometry.attributes.position.needsUpdate=true;
   });
-  return <primitive object={line} />;
+  return <><primitive object={line}/><primitive object={ribbon}/></>;
 }
 
 function Traveller({ props, resources, registry }: { props: MuseumSceneProps; resources: SceneResources; registry: Map<string, Group> }) {
@@ -204,7 +239,7 @@ function Traveller({ props, resources, registry }: { props: MuseumSceneProps; re
     if (!hasRun || previousStep.current !== props.step || (hasRun && !previousRun.current) || previousReset.current !== props.resetKey || previousArchitecture.current !== props.model.architecture) phase.current = 0;
     previousStep.current = props.step; previousRun.current = hasRun; previousReset.current = props.resetKey;
     previousArchitecture.current = props.model.architecture;
-    if (props.playing) phase.current = Math.min(phase.current + Math.min(delta, .05) / .28, .999);
+    if (props.playing&&!props.launching&&!props.momentId) phase.current = Math.min(phase.current + Math.min(delta, .05) / ((props.duration??1800)/1000*.9), .999);
     const entry = token ? props.model.flow.indexOf(token.id) : 0;
     const route = props.model.flow.slice(Math.max(0, entry)).map(id => registry.get(id)).filter((node): node is Group => !!node);
     if (route.length < 2) { traveller.current.visible = false; return; }
@@ -226,6 +261,23 @@ function Traveller({ props, resources, registry }: { props: MuseumSceneProps; re
       <planeGeometry args={[.33, .2]} /><meshBasicMaterial map={texture} transparent toneMapped={false} />
     </mesh>
   </group>;
+}
+
+function FlyingCard({text,index,total,props,resources,registry}:{text:string;index:number;total:number;props:MuseumSceneProps;resources:SceneResources;registry:Map<string,Group>}) {
+  const mesh=useRef<Group>(null),elapsed=useRef(0);
+  const texture=useMemo(()=>makeLabel(text===''?'␣':text,'#263d3c'),[text]);
+  useEffect(()=>()=>texture.dispose(),[texture]);
+  useFrame((_,delta)=>{if(!mesh.current)return;if(props.playing)elapsed.current+=Math.min(delta,.05);const t=MathUtils.clamp((elapsed.current-index*.035)/1.05,0,1),ease=1-Math.pow(1-t,3);const input=registry.get(`token-${index}`)?.position??new Vector3((index-(total-1)/2)*.14,-1.8,.2);mesh.current.position.set(MathUtils.lerp(-4+(index%4)*.3,input.x,ease),MathUtils.lerp(-3,input.y,ease)+Math.sin(t*Math.PI)*2.6,MathUtils.lerp(4,input.z,ease));mesh.current.rotation.set((1-ease)*-.8,(1-ease)*.4,(1-ease)*(-.4+index*.07));});
+  return <group ref={mesh}><mesh geometry={resources.box} scale={[.44,.54,.055]}><meshPhysicalMaterial color="#eee4ca" roughness={.85}/></mesh><mesh position={[0,0,.03]}><planeGeometry args={[.4,.4]}/><meshBasicMaterial map={texture} transparent/></mesh></group>;
+}
+function ThrownCards({props,resources,registry}:{props:MuseumSceneProps;resources:SceneResources;registry:Map<string,Group>}) {
+  const cards=(props.inputCards??[]).slice(0,20);
+  return <>{cards.map((text,index)=><FlyingCard key={index} text={text} index={index} total={cards.length} props={props} resources={resources} registry={registry}/>)}</>;
+}
+function SignalWave({props,resources,registry}:{props:MuseumSceneProps;resources:SceneResources;registry:Map<string,Group>}) {
+  const group=useRef<Group>(null),time=useRef(0),last=useRef(-1);
+  useFrame((_,delta)=>{if(last.current!==props.step){last.current=props.step;time.current=0;}if(!props.momentId)time.current+=Math.min(delta,.05);if(group.current){const anchor=registry.get(props.model.architecture==='attention'?`decoder-${props.step}`:`token-${props.step}`)??registry.get(props.paperTarget??'');if(anchor)group.current.position.copy(anchor.position);group.current.scale.setScalar(.2+Math.min(time.current,1.4)*3);group.current.visible=time.current<1.4;}});
+  return <group ref={group}><mesh geometry={resources.fineRing}><meshBasicMaterial color={MINT} transparent opacity={.3} depthWrite={false}/></mesh></group>;
 }
 
 function CameraRig({ props, parts }: { props: MuseumSceneProps; parts: ExplorerPart[] }) {
@@ -280,15 +332,21 @@ function CameraRig({ props, parts }: { props: MuseumSceneProps; parts: ExplorerP
 }
 
 function World({ props, hoveredId, canClick }: { props: MuseumSceneProps; hoveredId: string | null; canClick: () => boolean }) {
-  const { invalidate } = useThree();
+  const { invalidate,gl } = useThree();
   const resources = useMemo(makeResources, []);
   const registry = useMemo(() => new Map<string, Group>(), []);
-  const parts = displayedParts(props);
+  const parts = useMemo(()=>displayedParts(props),[props]);
+  const paperMoving=useRef(0);
+  useEffect(()=>{paperMoving.current=performance.now()+1300;invalidate();},[props.paperFront,invalidate]);
+  const [previousParts,setPreviousParts]=useState(parts);
+  useEffect(()=>{const timer=window.setTimeout(()=>setPreviousParts(parts),900);return()=>clearTimeout(timer);},[parts]);
+  const renderParts=[...new Map([...previousParts,...parts].map(p=>[p.id,p])).values()];
+  useEffect(()=>{if(!props.scan)return;const canvas=gl.domElement;const move=()=>invalidate();canvas.addEventListener('pointermove',move);return()=>canvas.removeEventListener('pointermove',move);},[props.scan,gl,invalidate]);
   const visibleIds = new Set(parts.map(part => part.id));
   // Resting views consume no animation frames. React changes, camera inertia,
   // interpolation, and a running experiment explicitly request the next frame.
   useEffect(() => invalidate(), [invalidate, props.model, props.explosion, props.selectedId, props.isolated, props.visibleCategories, props.playing, props.hasRun, props.mode, props.step, hoveredId]);
-  useFrame(() => { if (props.playing) invalidate(); });
+  useFrame(({camera,size}) => { if (props.playing||props.momentId||props.additionId||props.launching||performance.now()<paperMoving.current) invalidate();const anchor=registry.get(props.paperTarget??'');if(anchor&&props.onAnchor){const p=anchor.position.clone().project(camera);props.onAnchor((p.x+1)/2*size.width,(1-p.y)/2*size.height);} });
   useEffect(() => () => { Object.values(resources).forEach(resource => resource.dispose()); }, [resources]);
   return <>
     <ambientLight intensity={.72} color="#b5c7e8" />
@@ -298,8 +356,11 @@ function World({ props, hoveredId, canClick }: { props: MuseumSceneProps; hovere
     <pointLight position={[0, -4, 3]} intensity={14} color="#75cbb2" distance={16} />
     <group>
       {props.model.links.filter(link => visibleIds.has(link.from) && visibleIds.has(link.to)).map(link => <Strand key={link.id} link={link} registry={registry} props={props} />)}
-      {parts.map(part => <Part key={part.id} part={part} resources={resources} registry={registry} props={props} hoveredId={hoveredId} canClick={canClick} />)}
+      {renderParts.map(part => <Part key={part.id} part={part} resources={resources} registry={registry} props={props} hoveredId={hoveredId} canClick={canClick} retiring={!visibleIds.has(part.id)}/>)}
       <Traveller props={props} resources={resources} registry={registry} />
+      {props.launching&&<ThrownCards props={props} resources={resources} registry={registry}/>}
+      {props.playing&&props.model.architecture==='transformer'&&<SignalWave props={props} registry={registry} resources={resources}/>}
+      {props.playing&&props.model.architecture==='attention'&&<SignalWave props={props} registry={registry} resources={resources}/>}
     </group>
     <CameraRig props={props} parts={parts} />
   </>;
@@ -342,9 +403,9 @@ function FlatScene(props: MuseumSceneProps) {
         const [x, y] = convert(part), width = Math.max(12, part.scale[0] * zoom), height = Math.max(12, part.scale[1] * zoom);
         const selected = related(part, props.selectedId, props.model.parts), muted = props.selectedId !== null && !selected;
         const color = part.ghost ? AMBER : part.color ?? CATEGORY_BASE[part.category];
-        return <g key={part.id} transform={`translate(${x} ${y})`} className="museum-flat-part" role="button" tabIndex={0} aria-label={part.label} aria-pressed={selected}
+        return <g key={part.id} transform={`translate(${x} ${y})`} className="museum-flat-part" role="button" tabIndex={0} aria-label={part.sceneLabel??part.label} aria-pressed={selected}
           opacity={muted ? .18 : part.ghost ? .35 : 1} onClick={event => { event.stopPropagation(); props.onSelect(part.id); }}
-          onFocus={() => props.onHover?.(part.id)} onBlur={() => props.onHover?.(null)} onMouseEnter={() => props.onHover?.(part.id)} onMouseLeave={() => props.onHover?.(null)}
+          onDoubleClick={()=>props.onReturn?.()} onFocus={() => props.onHover?.(part.id)} onBlur={() => props.onHover?.(null)} onMouseEnter={() => props.onHover?.(part.id)} onMouseLeave={() => props.onHover?.(null)}
           onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); props.onSelect(part.id); } }}>
           <title>{part.label}</title>
           {part.kind === 'sphere' || part.kind === 'valve' || part.kind === 'ring' ? <>
@@ -355,7 +416,7 @@ function FlatScene(props: MuseumSceneProps) {
             <rect x={-width / 2} y={-height / 2} width={width} height={height} rx={Math.min(10, height * .15)} fill={part.kind === 'card' ? color : 'url(#museum-surface)'} stroke={selected || part.active ? MINT : color} strokeWidth={selected ? 2 : 1} />
             {part.kind !== 'card' && <path d={`M ${-width * .17} ${height * .28} H ${width * .17}`} stroke={MINT} strokeWidth={2} strokeOpacity=".65" />}
           </>}
-          {(part.kind === 'card' || selected) && <text textAnchor="middle" dominantBaseline="middle" fill="#eefff7" fontSize={Math.max(10, Math.min(17, height * .3))} fontFamily="DM Sans Variable, sans-serif" pointerEvents="none">{part.label.length > 18 ? `${part.label.slice(0, 16)}…` : part.label}</text>}
+          {(part.kind === 'card' || selected) && <text textAnchor="middle" dominantBaseline="middle" fill={part.kind==='card'?'#233b36':'#eefff7'} fontSize={Math.max(10, Math.min(17, height * .3))} fontFamily="DM Sans Variable, sans-serif" pointerEvents="none">{part.label.length > 18 ? `${part.label.slice(0, 16)}…` : part.label}</text>}
         </g>;
       })}
     </svg>
@@ -396,9 +457,9 @@ export default function MuseumScene(props: MuseumSceneProps) {
   const sceneProps = { ...props, onHover: (id: string | null) => { setHoveredId(id); props.onHover?.(id); } };
   const flat = props.flat || props.reducedMotion || !webGL || contextLost;
   const canClick = () => gesture.current.distance <= 6;
-  return <div className={`museum-scene${hoveredId ? ' has-hover' : ''}${flat ? ' is-flat' : ''}`}
+  return <div className={`museum-scene${hoveredId ? ' has-hover' : ''}${flat ? ' is-flat' : ''}${props.scan?' scan-active':''}`} onDoubleClick={()=>props.onReturn?.()}
     onPointerDownCapture={event => { const state = gesture.current; state.pointers.add(event.pointerId); state.x = event.clientX; state.y = event.clientY; state.distance = state.pointers.size > 1 ? 100 : 0; }}
-    onPointerMoveCapture={event => { const state = gesture.current; if (state.pointers.size) state.distance = Math.max(state.distance, Math.hypot(event.clientX - state.x, event.clientY - state.y)); }}
+    onPointerMoveCapture={event => { const state = gesture.current; if (state.pointers.size) state.distance = Math.max(state.distance, Math.hypot(event.clientX - state.x, event.clientY - state.y));if(props.scan){const rect=event.currentTarget.getBoundingClientRect();event.currentTarget.style.setProperty('--scan-x',`${event.clientX-rect.left}px`);event.currentTarget.style.setProperty('--scan-y',`${event.clientY-rect.top}px`);} }}
     onPointerUpCapture={event => gesture.current.pointers.delete(event.pointerId)} onPointerCancelCapture={event => gesture.current.pointers.delete(event.pointerId)}>
     {flat ? <FlatScene {...sceneProps} /> : <SceneBoundary fallback={<FlatScene {...sceneProps} />}>
       <Canvas frameloop="demand" dpr={[1, 1.75]} camera={{ position: [5.8, 3.5, 14], fov: 36, near: .05, far: 120 }} gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}

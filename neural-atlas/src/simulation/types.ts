@@ -13,6 +13,11 @@ export interface SimulationConfig {
   positionalEncoding: boolean;
   causalMask: boolean;
   gateOverrides?: Partial<Gates>;
+  headCount?: number;
+  attentionContext?: number;
+  attentionSharpness?: number;
+  customAttention?: boolean;
+  clueIndex?: number;
 }
 export interface Token { id: number; text: string; position: number; isClue: boolean }
 export interface Probability { token: string; probability: number }

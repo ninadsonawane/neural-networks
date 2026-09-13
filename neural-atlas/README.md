@@ -2,7 +2,7 @@
 
 **How Language Models Learned to Remember** is an interactive museum of five language-model architectures and a visual companion to [ninadsonawane/neural-networks](https://github.com/ninadsonawane/neural-networks). Start with an assembled model, take it apart, and discover why each component exists. Switch to Experiment to follow the same character sequence through a fixed-context MLP, vanilla RNN, LSTM/GRU, attention bridge, and causal Transformer.
 
-The browser runs **deterministic educational simulations**. No trained weights or notebook checkpoints are bundled, and the probability bars are not predictions from a trained language model. The attention bridge is explicitly a conceptual word-level English/Hinglish translation example; the main experiment uses characters. The spatial assemblies are explanatory diagrams, not literal hardware or biological neurons.
+The browser runs **deterministic educational simulations**. No trained weights or notebook checkpoints are bundled, and the probability bars are not predictions from a trained language model. The live attention experiment retrieves characters from your own input. Legacy sample recordings also include a conceptual English/Hinglish word alignment; neither is trained translation. The spatial assemblies are explanatory diagrams, not literal hardware or biological neurons.
 
 ## Run and verify
 
@@ -34,17 +34,27 @@ DM Sans and IBM Plex Mono are bundled locally through Fontsource, with their SIL
 
 **Learn is the default.** The architecture opens as a compact assembly with a short explanation and a small control dock. Drag to orbit and scroll to zoom. Move the Assembly → Exploded slider to separate the components, then select a piece to read its purpose and why it exists. Isolate it for a closer look, return it to context, or filter semantic categories such as tokens, embeddings, memory, gates, attention, residual stream, and output. Reset reassembles the model and restores the camera, filters, and replay state. The evolution rail selects the five architectures.
 
-**Experiment follows the signal.** Type and tokenize a short phrase, choose the cat/mouse or Hinglish example, or add a distant clue. Run the sequence and watch the signal cross the assembly. Pause, step backward or forward, scrub, and replay. At the end, one sentence explains what reached the output. “Try the next idea” runs the same input through the next architecture. This is replay of the supplied sequence, not generated text or notebook-checkpoint inference.
+**Experiment follows the signal.** Type and tokenize a short phrase, choose the cat/mouse or Hinglish example, or add a distant clue. Optionally choose a character through the hidden **Pick clue** dropdown, then use **Throw it in** to arc paper tokens into the assembly and follow their processing route in slow motion. Pause, step backward or forward, scrub, and replay. At the end, one sentence explains what reached the output. “Try the next idea” runs the same input through the next architecture. This is replay of the supplied sequence, not generated text or notebook-checkpoint inference.
 
 Details appear when requested. Select a component and choose “Go deeper,” open Experiment settings, inspect the output probabilities, or choose Compare/About from the utility controls. The detail sheet contains:
 
-- A compact mechanism equation and expandable model settings: MLP context 3–8, RNN recurrent multiplier, LSTM/GRU gates and clue preservation, attention-bridge source length, and Transformer layer/head/position/mask controls.
+- A compact mechanism equation and expandable model settings: MLP context 1–32, RNN recurrent multiplier, LSTM/GRU gates and clue preservation, attention-bridge source length, and Transformer layer/head/position/mask controls.
 - Manual gate overrides that apply at every step and take precedence over automatic values and clue preservation. GRU remains explicitly conceptual.
 - Temperature, recorded or simulated probability bars, signed state summaries, retained-index annotations, and selected source/decoder weights.
 - A normalized attention matrix with exact values, keyboard cell navigation, and source/target selection. Spatial scenes show bounded subsets of the trace; the matrix retains all recorded positions.
 - Comparison using the same input and shared replay store, plus source notes and JSON import/export. Imported replay hides simulation settings and simulated comparison.
 
 The RNN backward signal is a scalar gradient-transport illustration, not a measured training gradient. Head patterns and translation alignment are deliberately constructed teaching examples. Changing a control changes the simulation; it does not train a model.
+
+## Cinematic exploration
+
+Huge architecture titles and camera-facing labels keep the machine recognizable. Hover lifts and illuminates a component; click isolates it with a short explanation. Double-click or Escape returns to the assembly. Scan briefly reveals nearby labels. Replay pauses at a clue-retention moment, highlights the responsible component, and brings its research card forward.
+
+**Filter** opens the otherwise hidden **Architecture Playground**. Stage-specific controls animate context windows, sequence stacks, widths, gates, retrieval patterns, head counts, and layer stacks. Tiny, Notebook-like, Wide, Long context, and Reset presets provide starting points. Each stage remembers its own controls. Width settings illustrate capacity through geometry; numerical teaching states remain eight-dimensional, and presets are not training benchmarks. Transformer layers and heads are bounded to four each. Context/retention controls affect the educational computation.
+
+Throw-in animation displays up to 20 physical cards with no permanent clue tray; all input positions up to the configured 80-character cap still process. Scenes show bounded subsets of larger sequences to retain space and performance. Attention ribbons use the simulated or recorded weights. Parallel Transformer animation depicts eligible attention positions, not parallel autoregressive generation.
+
+One original archival cover accompanies each idea: Bengio (2003) for MLP, Mikolov (2010) for RNN, Graves (2013) for LSTM sequence generation, Cho (2014) for GRU, Bahdanau (2015) for attention, and Vaswani (2017) for Transformer. Graves is not credited with inventing LSTM; the detail card distinguishes the 1997 origin. Sutskever (2014) and Cho's original encoder–decoder paper appear as related reading. Cards contain original summaries and primary-source links, never reproduced PDF pages. “Why was this invented?” connects the cover to its relevant component; “Try the next idea” changes both the assembly and its paper.
 
 ## Accessibility and fallback views
 
@@ -154,7 +164,7 @@ The current schema is a compact replay format: it stores one selected attention 
 
 ## Validation scope
 
-`npm run test` runs both `src/simulation/engine.test.ts` and `src/explorer/models.test.ts`. The simulation suite checks determinism, model-mechanism invariants, probabilities, and the JSON boundary. The explorer suite checks stable semantic IDs, valid graph links, bounded geometry, separated exploded parts, and agreement between displayed values and their trace. `npm run lint` checks source quality; `npm run build` checks types and the production bundle.
+`npm run test` runs `src/simulation/engine.test.ts`, `src/explorer/models.test.ts`, and `src/explorer/cinema.test.ts`. The cinematic suite checks processing routes, topology bounds, custom attention, context limits, and imported-recording preservation. The simulation suite checks determinism, model-mechanism invariants, probabilities, and the JSON boundary. The explorer suite checks stable semantic IDs, valid graph links, bounded geometry, separated exploded parts, and agreement between displayed values and their trace. `npm run lint` checks source quality; `npm run build` checks types and the production bundle.
 
 Interface verification should cover orbit/zoom, assembled/exploded views, component selection/isolation, semantic filters, keyboard outline navigation, Learn/Experiment transitions, replay and same-input progression, dialog focus return, import round trips, and responsive/2D fallbacks. These checks establish that the teaching instrument works; they do not validate the source notebooks' experimental claims.
 

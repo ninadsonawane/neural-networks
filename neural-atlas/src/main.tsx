@@ -6,4 +6,5 @@ import '@fontsource/ibm-plex-mono/500.css';
 import App from './App';
 import './styles.css';
 import './explorer.css';
+import './cinema.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

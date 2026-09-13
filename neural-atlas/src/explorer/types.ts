@@ -24,6 +24,11 @@ export interface ExplorerPart {
   ghost?: boolean;
   active?: boolean;
   detailOnly?: boolean;
+  sceneLabel?: string;
+  cells?: number;
+  clue?: boolean;
+  echo?: number;
+  signal?: number;
 }
 export interface ExplorerLink {
   id: string;

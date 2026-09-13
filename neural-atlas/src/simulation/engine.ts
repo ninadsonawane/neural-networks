@@ -56,12 +56,14 @@ function summary(index: number, hidden: number[], cell: number[], gates: Gates,
 
 function normalizeConfig(config: SimulationConfig): SimulationConfig {
   return { ...config,
-    contextLength: Math.round(clamp(config.contextLength, 3, 8, 3)),
+    contextLength: Math.round(clamp(config.contextLength, 1, 32, 3)),
     temperature: clamp(config.temperature, 0.1, 3, 0.8),
     recurrentMultiplier: clamp(config.recurrentMultiplier, 0.05, 1.5, 0.72),
-    sourceLength: Math.round(clamp(config.sourceLength, 4, 16, 8)),
+    sourceLength: Math.round(clamp(config.sourceLength, 4, config.customAttention ? 80 : 16, 8)),
     head: Math.round(clamp(config.head, 0, 3, 2)),
     layer: Math.round(clamp(config.layer, 0, 3, 1)),
+    headCount: Math.round(clamp(config.headCount ?? 4, 1, 4, 4)),
+    attentionSharpness: clamp(config.attentionSharpness ?? 1, .2, 4, 1),
   };
 }
 
@@ -151,18 +153,19 @@ function transformer(tokens: Token[], config: SimulationConfig): { steps: StepSu
   const clue = tokens.find((token) => token.isClue);
   const headWeights = (query: number, head: number, layer: number): number[] => softmax(tokens.map((source, key) => {
     if (config.causalMask && key > query) return -Infinity;
+    if (config.attentionContext && key < query - config.attentionContext + 1) return -Infinity;
     const distance = Math.abs(query - key);
     let score = dot(states[query], states[key]) * (0.4 + layer * 0.15);
     if (head === 0) score += config.positionalEncoding ? -distance * (0.7 - layer * 0.1) : 0;
     if (head === 1) score += source.text.toLowerCase() === tokens[query].text.toLowerCase() ? 3.5 : 0;
     if (head === 2) score += source.text.toLowerCase() === clue?.text.toLowerCase() ? 4.6 : 0;
     if (head === 3 && config.positionalEncoding) score += 1.6 * Math.cos((query - key) * (0.7 + layer * 0.2));
-    return score;
+    return score * (config.attentionSharpness ?? 1);
   }));
   for (let layer = 0; layer <= config.layer; layer++) {
     attention = tokens.map((_, query) => {
       if (!config.aggregateHeads) return headWeights(query, config.head, layer);
-      const heads = Array.from({ length: 4 }, (_, head) => headWeights(query, head, layer));
+      const heads = Array.from({ length: config.headCount ?? 4 }, (_, head) => headWeights(query, head, layer));
       return tokens.map((_, key) => mean(heads.map((weights) => weights[key])));
     });
     const previous = states;
@@ -179,6 +182,13 @@ function transformer(tokens: Token[], config: SimulationConfig): { steps: StepSu
 }
 
 function translation(tokens: Token[], config: SimulationConfig) {
+  if (config.customAttention) {
+    const encoderTokens=tokens.map(token=>token.text), decoderTokens=[...encoderTokens], encoderStates=encoderTokens.map(embedding);
+    const alignment=tokens.map((query,i)=>softmax(tokens.map((source,j)=>j>i||j<i-config.sourceLength+1?-Infinity:((source.isClue?3.5:source.text===query.text?2:0)-Math.abs(i-j)*.04+(config.head===1&&j===i?2:config.head===2&&source.isClue?2:config.head===3?Math.cos(i-j):0))*(config.attentionSharpness??1))));
+    const clue=tokens.findIndex(t=>t.isClue);
+    const steps=tokens.map((_,i)=>{const weights=alignment[i];const hidden=Array.from({length:SIZE},(_,d)=>Math.tanh(encoderStates.reduce((sum,state,j)=>sum+state[d]*weights[j],0)));return summary(i,hidden,zero(),blankGates(),weights.flatMap((w,j)=>w>.025?[j]:[]),weights.slice(0,i+1),clue>=0?weights[clue]:0,config.temperature);});
+    return {encoderTokens,decoderTokens,encoderStates,alignment,steps};
+  }
   const source = ['meri', 'billi', 'ghar', 'par', 'hai', 'aaj', 'bahut', 'shaant', 'aur', 'khush', 'kyunki', 'baarish', 'ab', 'ruk', 'gayi', 'hai'];
   const target = ['my', 'cat', 'home', 'at', 'is', 'today', 'very', 'calm', 'and', 'happy', 'because', 'rain', 'now', 'stopped', 'has', 'it'];
   const encoderTokens = source.slice(0, config.sourceLength);
@@ -203,7 +213,7 @@ export function buildTrace(input: string, architecture: Architecture, rawConfig:
   const config = normalizeConfig(rawConfig);
   const characters = Array.from(input).slice(0, 80);
   if (!characters.length) characters.push(' ');
-  const clueIndex = characters.findIndex((character) => /\p{L}/u.test(character));
+  const clueIndex = config.clueIndex === undefined ? characters.findIndex((character) => /\p{L}/u.test(character)) : Math.max(0,Math.min(characters.length-1,Math.floor(config.clueIndex)));
   const tokens = characters.map((text, position) => ({ id: position, text, position, isClue: position === clueIndex }));
   const trace: Trace = {
     schemaVersion: 1, provenance: 'educational-simulation', architecture, input: characters.join(''),
@@ -226,7 +236,7 @@ export function buildTrace(input: string, architecture: Architecture, rawConfig:
   }
   if (architecture === 'attention') {
     Object.assign(trace, translation(tokens, config));
-    trace.metadata.description += ' Separate conceptual word-level Hinglish → English alignment, with illustrative token correspondences; this is not translation inference. Disabled attention shows uniform readout from a compressed state.';
+    trace.metadata.description += config.customAttention ? ' User-character source retrieval with deterministic alignment scores; this is not translation or trained inference.' : ' Separate conceptual word-level Hinglish → English alignment, with illustrative token correspondences; this is not translation inference. Disabled attention shows uniform readout from a compressed state.';
   }
   return trace;
 }
